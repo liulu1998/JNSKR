@@ -1,0 +1,8 @@
+# vim tags
+tags
+
+# vscode files
+.vscode/
+
+# pycharm files
+.idea/
