@@ -157,6 +157,7 @@ if __name__ == '__main__':
                     # tail entity
                     t_batch = tail_train1_shuffled[start_index: end_index]
 
+                    # w: entity 嵌入矩阵
                     loss0, loss1, loss2, w = train_step2(u_batch, i_batch, r_batch, t_batch, args)
                     loss[0] += loss0
                     loss[1] += loss1

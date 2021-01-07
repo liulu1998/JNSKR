@@ -29,8 +29,9 @@ class JNSKR:
         """ placeholder: 占位符, 可以初始化数据类型/形状, 也可以不初始化
         placeholder 作为 模型的输入 变量
         """
+        # input_items
         self.input_i = tf.placeholder(tf.int32, [None, 1], name="input_iid")
-
+        # TODO: input item & user ?
         self.input_iu = tf.placeholder(tf.int32, [None, self.max_user_pi], name="input_iu")
 
         # TODO hr —— head & relation ?
@@ -62,21 +63,24 @@ class JNSKR:
                                                      stddev=0.01), dtype=tf.float32, name="ridWg")
 
         # TODO: item domain ?
+        # Equ (9) prediction vector ?
         self.H_i = tf.Variable(tf.constant(0.01, shape=[self.embedding, 1]), name="hi")
 
-        # TODO: attention ? 是指 前馈网络 a ?
+        # >>> attention
+        # TODO: >>> attention ? 是指 前馈网络 a ?
         self.WA = tf.Variable(
             tf.truncated_normal(shape=[self.embedding, self.attention_size], mean=0.0,
                                 stddev=tf.sqrt(tf.div(2.0, self.attention_size + self.embedding))),
             dtype=tf.float32, name='WA'
         )
 
-        # TODO BA ?  HA ?
         self.BA = tf.Variable(tf.constant(0.00, shape=[self.attention_size]), name="BA")
         self.HA = tf.Variable(tf.constant(0.01, shape=[self.attention_size, 1]), name="HA")
+        # <<< attention
 
     def _attentive_sum(self, pos_r, pos_t, pos_num_r):
-        """ TODO: 用 attention 机制, 计算 item 的表示 ?
+        """ TODO: attention 机制, 计算 注意力权重 ! 注意力权重！ 即 注意力系数！
+        不是 向量表示！ 不是向量表示！
         Args:
             pos_r:
             pos_t:
@@ -84,6 +88,9 @@ class JNSKR:
 
         Returns:
         """
+        # TODO Equ (11) ?
+        # HA : h_{\alpha} in Equ (11)
+        # BA : b in Equ (11)
         entities_j = tf.exp(
             # for a batch of matrix, 每个 matrix 乘 HA
             tf.einsum('abc,ck->abk', tf.nn.relu(
@@ -93,6 +100,7 @@ class JNSKR:
         )
         # C_{abc} = \sigma_{a} \sigma_{b} Aab · B_{abc}
         entities_j = tf.einsum('ab, abc->abc', pos_num_r, entities_j)
+        # Equ (11) 分母
         entities_sum = tf.reduce_sum(entities_j, 1, keep_dims=True)
         entities_w = tf.div(entities_j, entities_sum)
         return entities_w
@@ -101,12 +109,14 @@ class JNSKR:
         """ TODO 创建推理 ? 应该是 最核心的 方法
         """
         # item
+
         # iid_W: item 嵌入层
         # iid: 给定 item 的 嵌入向量
         self.iid = tf.nn.embedding_lookup(self.iid_W, self.input_i)
         self.iid = tf.reshape(self.iid, [-1, self.embedding])
 
-        # TODO ?  item 的什么系数吗
+        # self.c = c_{v}^{-}, 推荐系统中 负例 的权重
+        # self.ck 即 w_{h}^{-}, KG 中 负例的权重
         self.c = tf.nn.embedding_lookup(self.negative_c, self.input_i)
         self.ck = tf.nn.embedding_lookup(self.negative_ck, self.input_i)
 
@@ -114,12 +124,12 @@ class JNSKR:
         self.iid_kg = tf.nn.dropout(self.iid, self.dropout_kg)
 
         # knowledge
+        # >>> KG, 计算 g_{hrt}^
         # pos_r: 关系的嵌入向量
         self.pos_r = tf.nn.embedding_lookup(self.rid_W, self.input_hr)
         # pos_t: tail 实体的嵌入向量
         self.pos_t = tf.nn.embedding_lookup(self.eid_W, self.input_ht)
-        # TODO ?
-        # pos_num_r: 0,1 的二值矩阵
+        # TODO ?  pos_num_r: 0,1 的二值矩阵
         # tf.cast 数据类型转换, 此处转为 float
         self.pos_num_r = tf.cast(tf.not_equal(self.input_hr, self.n_relations), 'float32')
         #
@@ -129,24 +139,32 @@ class JNSKR:
         self.pos_rt = self.pos_r * self.pos_t
 
         # pos_hrt :　原文中的 g_{hrt}^,  (h, r, t) 的 scoring function 值
+        # Equ (6)
         self.pos_hrt = tf.einsum('ac,abc->ab', self.iid_kg, self.pos_rt)
         self.pos_hrt = tf.reshape(self.pos_hrt, [-1, self.max_relation_pi])
+        # <<< KG, 计算 g_{hrt}^
 
         # cf 推荐系统
+        # Equ (10)
+        # entities_w : 注意力权重, Equ (10) 的 \alpha _{(r,t)}
         self.entities_w = self._attentive_sum(self.pos_r, self.pos_t, self.pos_num_r)
 
+        # TODO kid: e_{N_v}, Equ (10)
         self.kid = tf.reduce_sum(tf.multiply(self.entities_w, self.pos_t), 1)
 
         self.kid_drop = tf.nn.dropout(self.kid, self.dropout_kg)
         self.iid_cf = tf.nn.dropout(self.iid, self.dropout_keep_prob)
 
+        # Equ (10), cal q_v
         self.iid_drop = self.iid_cf + self.kid_drop
 
         self.pos_user = tf.nn.embedding_lookup(self.uid_W, self.input_iu)
+        # TODO ?
         self.pos_num_u = tf.cast(tf.not_equal(self.input_iu, self.n_users), 'float32')
         self.pos_user = tf.einsum('ab,abc->abc', self.pos_num_u, self.pos_user)
 
         # pos_iu : 原文中的 y_{uv}^, 预测的 u 对 v 的偏好
+        # Equ (9)
         self.pos_iu = tf.einsum('ac,abc->abc', self.iid_drop, self.pos_user)
         self.pos_iu = tf.einsum('ajk,kl->ajl', self.pos_iu, self.H_i)
         self.pos_iu = tf.reshape(self.pos_iu, [-1, self.max_user_pi])
@@ -158,7 +176,8 @@ class JNSKR:
         # H_i 是 attention network 的参数
         self.loss1 = tf.reduce_sum(tf.einsum('ab,ac->bc', self.uid_W, self.uid_W)
                                    * tf.einsum('ab,ac->bc', self.c * self.iid_drop, self.iid_drop)
-                                   * tf.matmul(self.H_i, self.H_i, transpose_b=True))
+                                   * tf.matmul(self.H_i, self.H_i, transpose_b=True)
+                                   )
         # Equ (12) 上半部分, c_{v}^{+} = 1.0,  c_{v}^{-} = self.c
         self.loss1 += tf.reduce_sum((1.0 - self.c) * tf.square(self.pos_iu) - 2.0 * self.pos_iu)
         # <<< CF 损失
@@ -171,18 +190,21 @@ class JNSKR:
         # ck 是 paper 中的 w_{hrt}^{-} ?, 负样本 (h,r,t) 的权重;   w_{hrt}^{+} 是 1.0
         # Equ (5), L_{KG}^{P}, the loss for positive data
         self.loss2 += tf.reduce_sum((1.0 - self.ck) * tf.square(self.pos_hrt) - 2.0 * self.pos_hrt)
-
         # <<< KGE 损失
 
+        # KGE 的 L2 loss
         self.l2_loss_0 = tf.nn.l2_loss(self.uid_W) + tf.nn.l2_loss(self.eid_W) + \
                          tf.nn.l2_loss(self.iid_W) + tf.nn.l2_loss(self.rid_W)
+        # attention 的 L2 loss
         self.l2_loss_1 = tf.nn.l2_loss(self.WA) + tf.nn.l2_loss(self.BA) + tf.nn.l2_loss(self.HA)
 
+        # CF loss, KG loss
         self.loss1 = self.coefficient[0] * self.loss1
         self.loss2 = self.coefficient[1] * self.loss2
 
-        self.loss = self.loss1 + self.loss2 + self.lambda_bilinear[0] * self.l2_loss_0 \
-                    + self.lambda_bilinear[1] * self.l2_loss_1
+        self.loss = self.loss1 + self.loss2 + \
+                    self.lambda_bilinear[0] * self.l2_loss_0 + \
+                    self.lambda_bilinear[1] * self.l2_loss_1
 
     def eval(self, sess, feed_dict):
         """ 验证 evaluate
