@@ -8,6 +8,7 @@ import collections
 import numpy as np
 import random as rd
 
+
 class Data(object):
     def __init__(self, args, path):
         self.path = path
@@ -117,7 +118,7 @@ class Data(object):
             neg_items = []
             while True:
                 if len(neg_items) == num: break
-                neg_i_id = np.random.randint(low=0, high=self.n_items,size=1)[0]
+                neg_i_id = np.random.randint(low=0, high=self.n_items, size=1)[0]
 
                 if neg_i_id not in self.train_user_dict[u] and neg_i_id not in neg_items:
                     neg_items.append(neg_i_id)
@@ -153,8 +154,6 @@ class Data(object):
 
         return split_uids, split_state
 
-
-
     def create_sparsity_split(self):
         all_users_to_test = list(self.test_user_dict.keys())
         user_n_iid = dict()
@@ -188,7 +187,7 @@ class Data(object):
             if n_rates >= count * 0.25 * (self.n_train + self.n_test):
                 split_uids.append(temp)
 
-                state = '#inter per user<=[%d], #users=[%d], #all rates=[%d]' %(n_iids, len(temp), n_rates)
+                state = '#inter per user<=[%d], #users=[%d], #all rates=[%d]' % (n_iids, len(temp), n_rates)
                 split_state.append(state)
                 print(state)
 
@@ -202,6 +201,5 @@ class Data(object):
                 state = '#inter per user<=[%d], #users=[%d], #all rates=[%d]' % (n_iids, len(temp), n_rates)
                 split_state.append(state)
                 print(state)
-
 
         return split_uids, split_state

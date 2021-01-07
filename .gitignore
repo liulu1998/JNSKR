@@ -6,3 +6,7 @@ tags
 
 # pycharm files
 .idea/
+
+Data/
+
+__pycache__/

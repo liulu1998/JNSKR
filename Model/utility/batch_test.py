@@ -23,7 +23,7 @@ args = parse_args()
 Ks = eval(args.Ks)
 
 if args.model_type == 'bprmf':
-    print args.data_path + args.dataset
+    print (args.data_path + args.dataset)
     data_generator = BPRMF_loader(args=args, path=args.data_path + args.dataset)
     batch_test_flag = False
 

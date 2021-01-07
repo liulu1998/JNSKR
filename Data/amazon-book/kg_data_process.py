@@ -69,11 +69,11 @@ def kg_data_process():
 
     f = open('kg_final2.txt', 'w')
 
-    print len(head_train)
+    print(len(head_train))
 
     for i in range(len(head_train)):
         if i%100000==0:
-            print i
+            print(i)
         if head_train[i] in train_set.keys():
             if relation_train[i] not in relation_list.keys():
                 relation_list[relation_train[i]]=r_n
@@ -83,10 +83,7 @@ def kg_data_process():
                 t_n=t_n+1
 
             f.write(str(head_train[i])+' '+str(relation_list[relation_train[i]])+' '+str(tail_list[tail_train[i]])+'\n')
-
-
-    print r_n, t_n
+    print(r_n, t_n)
 
 if __name__ == '__main__':
-
     kg_data_process()

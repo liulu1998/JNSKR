@@ -137,7 +137,7 @@ class KGAT_loader(Data):
         print('\treordering indices...')
         org_h_dict = dict()
 
-        print len(all_h_list)
+        print (len(all_h_list))
 
         for idx, h in enumerate(all_h_list):
             if h not in org_h_dict.keys():

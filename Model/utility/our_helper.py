@@ -2,7 +2,8 @@ import os
 import numpy as np
 import pandas as pd
 
-def build_train_set(train_set,n_users,relation_set,tail_set, n_relations,n_entities):
+
+def build_train_set(train_set, n_users, relation_set, tail_set, n_relations, n_entities):
     user_lenth = []
     for i in train_set:
         user_lenth.append(len(train_set[i]))
@@ -29,23 +30,22 @@ def build_train_set(train_set,n_users,relation_set,tail_set, n_relations,n_entit
         while len(relation_set[i]) < max_relation_pi:
             relation_set[i].append(n_relations)
             tail_set[i].append(n_entities)
-    print max_relation_pi
+    print(max_relation_pi)
 
-    return train_set,relation_set,tail_set,max_user_pi,max_relation_pi
+    return train_set, relation_set, tail_set, max_user_pi, max_relation_pi
 
-def caculate_weight(c0,c1,p,train_set, train_len,relation_train,relation_len):
 
-    m=[0] * len(train_set.keys())
+def calculate_weight(c0, c1, p, train_set, train_len, relation_train, relation_len):
+    m = [0] * len(train_set.keys())
     for i in train_set.keys():
-        m[i]=len(train_set[i])*1.0/train_len
+        m[i] = len(train_set[i]) * 1.0 / train_len
 
-    c=[0] * len(train_set.keys())
-    tem=0
+    c = [0] * len(train_set.keys())
+    tem = 0
     for i in train_set.keys():
-        tem += np.power(m[i],p)
+        tem += np.power(m[i], p)
     for i in train_set.keys():
-        c[i]=c0*np.power(m[i],p) / tem
-
+        c[i] = c0 * np.power(m[i], p) / tem
 
     mk = [0] * len(relation_train.keys())
     for i in relation_train.keys():
@@ -58,30 +58,33 @@ def caculate_weight(c0,c1,p,train_set, train_len,relation_train,relation_len):
     for i in relation_train.keys():
         ck[i] = c1 * np.power(mk[i], p) / tem
 
-    print c[0:10]
-    print ck[0:10]
+    print(c[0:10])
+    print(ck[0:10])
+
     c = np.array(c)
-    ck =  np.array(ck)
-    return c,ck
+    ck = np.array(ck)
+    return c, ck
 
-def load_data(DATA_ROOT,args):
-    train_file=os.path.join(DATA_ROOT, 'train.txt')
-    test_file= os.path.join(DATA_ROOT, 'test.txt')
 
-    n_users,n_items=0,0
-
-    train_len=0
+def load_data(DATA_ROOT, args):
+    train_file = os.path.join(DATA_ROOT, 'train.txt')
+    test_file = os.path.join(DATA_ROOT, 'test.txt')
+    # number of users, number of items
+    n_users, n_items = 0, 0
+    # len of train set
+    train_len = 0
 
     with open(train_file) as f:
         for l in f.readlines():
             if len(l) > 0:
                 l = l.strip('\n').split(' ')
                 items = [int(i) for i in l[1:]]
+                # current user id
                 uid = int(l[0])
 
                 n_items = max(n_items, max(items))
                 n_users = max(n_users, uid)
-                train_len+= len(items)
+                train_len += len(items)
 
     with open(test_file) as f:
         for l in f.readlines():
@@ -92,34 +95,43 @@ def load_data(DATA_ROOT,args):
                 except Exception:
                     continue
                 n_items = max(n_items, max(items))
+    # 因为 user, item ID 从 0 开始, num + 1
     n_items += 1
     n_users += 1
 
-    tp_kg = pd.read_csv(os.path.join(DATA_ROOT, 'kg_final2.txt'),sep=' ', header=None)
+    # h, r, t
+    tp_kg = pd.read_csv(os.path.join(DATA_ROOT, 'kg_final2.txt'), sep=' ', header=None)
 
     head_train = np.array(tp_kg[0], dtype=np.int32)
     relation_train = np.array(tp_kg[1], dtype=np.int32)
     tail_train = np.array(tp_kg[2], dtype=np.int32)
 
+    # item ID -> [user1, user2, ...]
     train_set = {}
 
     with open(train_file) as f_train:
         for l in f_train.readlines():
-            if len(l) == 0: break
+            if len(l) == 0:
+                break
             l = l.strip('\n')
             items = [int(i) for i in l.split(' ')]
+            # user ID, items
             uid, train_items = items[0], items[1:]
             for i in train_items:
                 if i in train_set:
                     train_set[i].append(uid)
                 else:
-                    train_set[i]=[uid]
+                    train_set[i] = [uid]
 
+    # relation_set: head entity -> [r1, r2 ...] , 即 h 引出的 所有关系 (边)
+    # tail_set: head entity -> [t1, t2 ...]
     relation_set, tail_set = {}, {}
 
+    # head_train: KG 中的 head entities
     for i in range(len(head_train)):
-
+        # head_train[i] 为第 i个 head entity
         if head_train[i] in relation_set:
+            # TODO ? relation_train[i] 是 第 i 个关系吧 ?
             relation_set[head_train[i]].append(relation_train[i])
             tail_set[head_train[i]].append(tail_train[i])
         else:
@@ -128,23 +140,28 @@ def load_data(DATA_ROOT,args):
 
     n_relations = max(relation_train) + 1
     n_entities = max(tail_train) + 1
-    relation_len =len(head_train)
+    relation_len = len(head_train)
 
-    negative_c, negative_ck = caculate_weight(args.c0,args.c1,args.p,train_set, train_len,relation_set,relation_len)
+    # TODO ??
+    negative_c, negative_ck = calculate_weight(
+        args.c0, args.c1, args.p, train_set, train_len, relation_set, relation_len
+    )
 
     train_set, relation_set, tail_set, max_user_pi, max_relation_pi = \
-        build_train_set(train_set,n_users,relation_set,tail_set, n_relations,n_entities)
+        build_train_set(train_set, n_users, relation_set, tail_set, n_relations, n_entities)
 
-    return n_users, n_items, n_relations,n_entities, train_set,relation_set, tail_set,max_user_pi,max_relation_pi,negative_c, negative_ck
+    return n_users, n_items, n_relations, n_entities, train_set, relation_set, tail_set, \
+           max_user_pi, max_relation_pi, negative_c, negative_ck
 
-def get_count(tp, id):
-    playcount_groupbyid = tp[[id]].groupby(id, as_index=False)
+
+def get_count(tp, id_):
+    playcount_groupbyid = tp[[id_]].groupby(id_, as_index=False)
     count = playcount_groupbyid.size()
     return count
 
+
 def get_train_instances(train_set, relation_set, tail_set):
     item_train, user_train, relation_train1, tail_train1 = [], [], [], []
-
 
     for i in relation_set.keys():
         if i in train_set.keys():
@@ -162,6 +179,8 @@ def get_train_instances(train_set, relation_set, tail_set):
     item_train = item_train[:, np.newaxis]
 
     return item_train, user_train, relation_train1, tail_train1
+
+
 def early_stopping(log_value, best_value, stopping_step, expected_order='acc', flag_step=100):
     # early stopping strategy:
     assert expected_order in ['acc', 'dec']
