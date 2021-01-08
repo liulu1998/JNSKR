@@ -1,6 +1,7 @@
 import sys
 import time
 import argparse
+# our_test 复用了 KGAT 的代码
 from utility.our_test import *
 from utility.our_helper import *
 from JNSKR import JNSKR
@@ -63,6 +64,7 @@ def train_step2(u_batch, i_batch, r_batch, t_batch, args):
         model.dropout_kg: args.dropout[1],
     }
 
+    # loss 总损失, loss1 CF 损失, loss2 KG 损失, w 注意力权重
     _, loss, loss1, loss2, w = sess.run(
         [optimizer1, model.loss, model.loss1, model.loss2, model.entities_w],
         feed_dict
@@ -86,6 +88,7 @@ if __name__ == '__main__':
     tail_set, max_user_pi, max_relation_pi, negative_c, negative_ck \
         = load_data(DATA_ROOT, args)
 
+    print("after load_data: ")
     print(n_users, n_items, n_relations, n_entities, max_user_pi, max_relation_pi)
 
     # hyper-parameter
@@ -98,6 +101,7 @@ if __name__ == '__main__':
     item_train, user_train, relation_train1, tail_train1 = get_train_instances(
         train_set, relation_set, tail_set)
 
+    # TODO ?
     item_test = range(ITEM_NUM)
     # r, t
     relation_test, tail_test = [], []
@@ -105,6 +109,7 @@ if __name__ == '__main__':
     for i in item_test:
         relation_test.append(relation_set[i])
         tail_test.append(tail_set[i])
+    # <<< ?
 
     with tf.Graph().as_default():
         session_conf = tf.ConfigProto()
@@ -112,6 +117,7 @@ if __name__ == '__main__':
         sess = tf.Session(config=session_conf)
 
         with sess.as_default():
+            # JNSKR model
             model = JNSKR(n_users, n_items, n_relations, n_entities, max_user_pi, max_relation_pi, relation_test,
                           tail_test, negative_c, negative_ck, args)
             model._build_graph()
@@ -121,11 +127,14 @@ if __name__ == '__main__':
                 learning_rate=0.05, initial_accumulator_value=1e-8
             ).minimize(model.loss)
 
+            # 初始化变量
             sess.run(tf.global_variables_initializer())
 
+            # precision, Recall, NDCG@, hit@
             pre_loger, rec_loger, ndcg_loger, hit_loger = [], [], [], []
 
             cur_best_pre_0 = 0
+            # early-stopping
             stopping_step = 0
             should_stop = False
 
@@ -133,13 +142,16 @@ if __name__ == '__main__':
                 print(epoch, "bridge entities training")
 
                 start_t = _writeline_and_time('\tUpdating...')
+
+                # 打乱 训练集
                 shuffle_indices = np.random.permutation(np.arange(len(item_train)))
+
                 item_train_shuffled = item_train[shuffle_indices]
                 user_train_shuffled = user_train[shuffle_indices]
                 relation_train1_shuffled = relation_train1[shuffle_indices]
                 tail_train1_shuffled = tail_train1[shuffle_indices]
 
-                # num of batches in per epoch
+                # epoch 中的 batch 数
                 ll = int(len(item_train_shuffled) / batch_size)
 
                 # bridge items
@@ -148,24 +160,27 @@ if __name__ == '__main__':
                 for batch_num in range(ll):
                     start_index = batch_num * batch_size
                     end_index = min((batch_num + 1) * batch_size, len(item_train_shuffled))
-                    # user
+                    # user batch
                     u_batch = user_train_shuffled[start_index: end_index]
-                    # item
+                    # item batch
                     i_batch = item_train_shuffled[start_index: end_index]
-                    # relation
+                    # relation batch
                     r_batch = relation_train1_shuffled[start_index: end_index]
-                    # tail entity
+                    # tail entity batch
                     t_batch = tail_train1_shuffled[start_index: end_index]
 
-                    # w: entity 嵌入矩阵
+                    # loss0 总损失, loss1 CF 损失, loss2 KG 损失, w: 注意力权重
                     loss0, loss1, loss2, w = train_step2(u_batch, i_batch, r_batch, t_batch, args)
                     loss[0] += loss0
                     loss[1] += loss1
                     loss[2] += loss2
-                # <<< for batch_num
-                print(w[5][0], w[5][1], w[5][2])
+                # <<< 遍历 batch
+
+                # print(w[5][0], w[5][1], w[5][2])
+
                 print('\r\tUpdating: time=%.2f'
                       % (time.time() - start_t))
+                # batch 平均损失
                 print('loss,loss_1,loss_2 ', loss[0] / ll, loss[1] / ll, loss[2] / ll)
 
                 if epoch < epochs:
@@ -196,13 +211,17 @@ if __name__ == '__main__':
                                               '\t'.join(['%.5f' % r for r in ret['ndcg']]))
                                 print(final_perf)
                         # <<< if args.sparsity
-                        cur_best_pre_0, stopping_step, should_stop = early_stopping(ret['recall'][0], cur_best_pre_0,
-                                                                                    stopping_step, expected_order='acc',
-                                                                                    flag_step=5)
+
+                        # early-stopping
+                        cur_best_pre_0, stopping_step, should_stop = early_stopping(
+                            ret['recall'][0], cur_best_pre_0, stopping_step, expected_order='acc', flag_step=5
+                        )
                         if should_stop:
                             break
+                    # <<< if verbose
                 # <<< if epoch < epochs
             # <<< for epoch
+
             recs = np.array(rec_loger)
             pres = np.array(pre_loger)
             ndcgs = np.array(ndcg_loger)

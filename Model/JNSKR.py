@@ -9,7 +9,15 @@ class JNSKR:
         self.n_items = n_items
         self.n_relations = n_relations
         self.n_entities = n_entities
-        # TODO ?
+
+        """
+        max_user_pi 是对于每个商品，最多的交互用户的数量；(所有商品中 取得最大的，对齐)
+        max_relation_pi 是对于每个商品最多的交互关系数量。
+        
+        因为 tf 中的输入需要是一个对齐的tensor, 
+        所以我们输入的每个训练batch的shape为 [batch_size, max_user_pi]，
+        对于数量不足的商品，我们用“self.n_users”补齐。
+        """
         self.max_user_pi = max_user_pi
         self.max_relation_pi = max_relation_pi
         # embedding size
@@ -19,8 +27,10 @@ class JNSKR:
         self.negative_c = tf.constant(negative_c, dtype=tf.float32)
         self.negative_ck = tf.constant(negative_ck, dtype=tf.float32)
 
+        # weight of multi-task
         self.coefficient = args.coefficient
         self.lambda_bilinear = args.lambda_bilinear
+
         self.relation_test = relation_test
         self.tail_test = tail_test
         self.attention_size = args.embed_size / 2
@@ -31,12 +41,12 @@ class JNSKR:
         """
         # input_items
         self.input_i = tf.placeholder(tf.int32, [None, 1], name="input_iid")
-        # TODO: input item & user ?
+        # TODO: input item & user ? 输入是每个 item 与它交互的 user ?
         self.input_iu = tf.placeholder(tf.int32, [None, self.max_user_pi], name="input_iu")
 
-        # TODO hr —— head & relation ?
+        # TODO hr —— head & relation ?  每个实体 和 它邻接的 边（关系） ?
         self.input_hr = tf.placeholder(tf.int32, [None, self.max_relation_pi], name="input_hr")
-        # TODO ht —— head & tail ?
+        # TODO ht —— head & tail ?  每个实体 和 它邻接的 节点（尾实体）?
         self.input_ht = tf.placeholder(tf.int32, [None, self.max_relation_pi], name="input_ht")
 
         # dropout 比例
@@ -62,24 +72,25 @@ class JNSKR:
         self.rid_W = tf.Variable(tf.truncated_normal(shape=[self.n_relations + 1, self.embedding], mean=0.0,
                                                      stddev=0.01), dtype=tf.float32, name="ridWg")
 
-        # TODO: item domain ?
+        # item domain
         # Equ (9) prediction vector ?
         self.H_i = tf.Variable(tf.constant(0.01, shape=[self.embedding, 1]), name="hi")
 
-        # >>> attention
-        # TODO: >>> attention ? 是指 前馈网络 a ?
+        # >>> attention 参数
+        # 转换矩阵 W
         self.WA = tf.Variable(
             tf.truncated_normal(shape=[self.embedding, self.attention_size], mean=0.0,
                                 stddev=tf.sqrt(tf.div(2.0, self.attention_size + self.embedding))),
             dtype=tf.float32, name='WA'
         )
-
+        # 偏置 bias
         self.BA = tf.Variable(tf.constant(0.00, shape=[self.attention_size]), name="BA")
+        # 外面的一层 h_{\alpha}
         self.HA = tf.Variable(tf.constant(0.01, shape=[self.attention_size, 1]), name="HA")
-        # <<< attention
+        # <<< attention 参数
 
     def _attentive_sum(self, pos_r, pos_t, pos_num_r):
-        """ TODO: attention 机制, 计算 注意力权重 ! 注意力权重！ 即 注意力系数！
+        """ attention 机制, 计算 注意力权重 ! 注意力权重！ 即 注意力系数！
         不是 向量表示！ 不是向量表示！
         Args:
             pos_r:
@@ -88,7 +99,7 @@ class JNSKR:
 
         Returns:
         """
-        # TODO Equ (11) ?
+        # Equ (11), 与论文中稍有不同, 不过无所谓
         # HA : h_{\alpha} in Equ (11)
         # BA : b in Equ (11)
         entities_j = tf.exp(
@@ -106,7 +117,7 @@ class JNSKR:
         return entities_w
 
     def _create_inference(self):
-        """ TODO 创建推理 ? 应该是 最核心的 方法
+        """ 创建推理 ? 应该是 最核心的 方法
         """
         # item
 
@@ -120,7 +131,7 @@ class JNSKR:
         self.c = tf.nn.embedding_lookup(self.negative_c, self.input_i)
         self.ck = tf.nn.embedding_lookup(self.negative_ck, self.input_i)
 
-        # TODO ? 在这 dropout ?
+        # 本文章主要依靠 Dropout 正则化
         self.iid_kg = tf.nn.dropout(self.iid, self.dropout_kg)
 
         # knowledge
@@ -129,7 +140,12 @@ class JNSKR:
         self.pos_r = tf.nn.embedding_lookup(self.rid_W, self.input_hr)
         # pos_t: tail 实体的嵌入向量
         self.pos_t = tf.nn.embedding_lookup(self.eid_W, self.input_ht)
-        # TODO ?  pos_num_r: 0,1 的二值矩阵
+
+        """
+        input_hr 是用 n_relations 对齐过的（其中有许多没用的数值, 即 n_relations）
+        pos_num_r 是过滤出真正有用的元素（即 不等于 n_relations 的元素）,
+        pos_num_r 是二值的 bool 矩阵
+        """
         # tf.cast 数据类型转换, 此处转为 float
         self.pos_num_r = tf.cast(tf.not_equal(self.input_hr, self.n_relations), 'float32')
         #
@@ -149,17 +165,29 @@ class JNSKR:
         # entities_w : 注意力权重, Equ (10) 的 \alpha _{(r,t)}
         self.entities_w = self._attentive_sum(self.pos_r, self.pos_t, self.pos_num_r)
 
-        # TODO kid: e_{N_v}, Equ (10)
+        # >>> 计算 Item 的最终表示
+        # kid: e_{N_v}, Equ (10)
         self.kid = tf.reduce_sum(tf.multiply(self.entities_w, self.pos_t), 1)
-
+        # kid_drop 是 kid 经过 Dropout
         self.kid_drop = tf.nn.dropout(self.kid, self.dropout_kg)
+        # iid_cf 是 iid 经过 Dropout (iid 是 Item 的嵌入向量, 即 本身表示)
         self.iid_cf = tf.nn.dropout(self.iid, self.dropout_keep_prob)
 
-        # Equ (10), cal q_v
+        # Equ (10), cal q_v, Item 的最终表示
         self.iid_drop = self.iid_cf + self.kid_drop
+        # <<< 计算 Item 的最终表示
 
         self.pos_user = tf.nn.embedding_lookup(self.uid_W, self.input_iu)
-        # TODO ?
+
+        """
+        因为我们的输入tensor是补齐的，
+        所以首先用 tf.cast(tf.not_equal(self.input_iu, self.n_users) 操作来所补得“self.n_users”置为0，
+        这样就不会被更新计算到。
+        
+        input_iu 是用 n_users 对齐过的（其中有许多没用的数值, 即 n_users)
+        pos_num_u 是过滤出真正有用的元素（即 不等于 n_users 的元素）,
+        pos_num_u 是二值的 bool 矩阵
+        """
         self.pos_num_u = tf.cast(tf.not_equal(self.input_iu, self.n_users), 'float32')
         self.pos_user = tf.einsum('ab,abc->abc', self.pos_num_u, self.pos_user)
 
@@ -174,6 +202,7 @@ class JNSKR:
         # >>> CF 损失
         # Equ (12) 下半部分
         # H_i 是 attention network 的参数
+        # TODO: 注意, idd_drop 是 Item 的最终表示
         self.loss1 = tf.reduce_sum(tf.einsum('ab,ac->bc', self.uid_W, self.uid_W)
                                    * tf.einsum('ab,ac->bc', self.c * self.iid_drop, self.iid_drop)
                                    * tf.matmul(self.H_i, self.H_i, transpose_b=True)
@@ -183,6 +212,7 @@ class JNSKR:
         # <<< CF 损失
 
         # >>> KGE 损失
+        # TODO: 注意, idd_kg 是 Item 的本身表示 (没加入 邻居 的信息)
         # Equ (8), 优化后的 L_{KG}^{A}, the loss of all data , ck 即 w_{h}^{-}
         self.loss2 = tf.reduce_sum(tf.einsum('ab,ac->bc', self.ck * self.iid_kg, self.iid_kg)
                                    * tf.einsum('ab,ac->bc', self.eid_W, self.eid_W)
@@ -192,7 +222,7 @@ class JNSKR:
         self.loss2 += tf.reduce_sum((1.0 - self.ck) * tf.square(self.pos_hrt) - 2.0 * self.pos_hrt)
         # <<< KGE 损失
 
-        # KGE 的 L2 loss
+        # KGE 的 L2 loss, 4 个嵌入矩阵
         self.l2_loss_0 = tf.nn.l2_loss(self.uid_W) + tf.nn.l2_loss(self.eid_W) + \
                          tf.nn.l2_loss(self.iid_W) + tf.nn.l2_loss(self.rid_W)
         # attention 的 L2 loss
@@ -218,9 +248,12 @@ class JNSKR:
         """
         pos_r = tf.nn.embedding_lookup(self.rid_W, self.relation_test)
         pos_t = tf.nn.embedding_lookup(self.eid_W, self.tail_test)
+
+        # 过滤掉 对齐中的没用元素（即 n_relations）
         pos_num_r = tf.cast(tf.not_equal(self.relation_test, self.n_relations), 'float32')
         pos_t = tf.einsum('ab,abc->abc', pos_num_r, pos_t)
 
+        # 注意力权重
         entities_w = self._attentive_sum(pos_r, pos_t, pos_num_r)
         k_test = tf.reduce_sum(tf.multiply(entities_w, pos_t), 1)
 
